@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS CloudFormation for EC2
+
+Parameters:
+    HomeIP:
+        Default: '#{Project.AWS.Home.IP}'
+        Description: My home IP address
+        Type: String
+Resources:    
+    Mysecgroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Allow RDP from home to web server
+            VpcId:
+                Fn::ImportValue: core1-VPCID
+            SecurityGroupIngress:
+                - IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: !Ref HomeIP
+                - IpProtocol: tcp
+                  FromPort: 10933
+                  ToPort: 10933
+                  CidrIp: !Ref HomeIP
+                - IpProtocol: tcp
+                  FromPort: 3389
+                  ToPort: 3389
+                  CidrIp: !Ref HomeIP
+                
+    Myec2: 
+        Type: AWS::EC2::Instance
+        Properties:
+            ImageId: '#{Project.AWS.AMI.ID}'
+            InstanceType: t2.micro 
+            KeyName: web-server
+            AvailabilityZone: us-east-1a
+            NetworkInterfaces: 
+            - AssociatePublicIpAddress: "true"
+              DeviceIndex: 0
+              GroupSet: 
+                - Ref: Mysecgroup
+              SubnetId: 
+                Fn::ImportValue: core1-PUBLICA
+            UserData:
+                Fn::Base64: !Sub |
+                    cd "C:\Users\Administrator\Desktop"
+                    msiexec /i Octopus.Tentacle.6.0.135-x64.msi /quiet
+                    Start-Sleep -s 10
+
+                    
+                    cd "C:\Program Files\Octopus Deploy\Tentacle"
+                    cmd.exe /c Tentacle.exe create-instance --instance "Tentacle" --config "C:\Octopus\Tentacle.config"
+                    cmd.exe /c Tentacle.exe new-certificate --instance "Tentacle" --if-blank
+                    cmd.exe /c Tentacle.exe configure --instance "Tentacle" --reset-trust
+                    cmd.exe /c Tentacle.exe configure --instance "Tentacle" --app "C:\Octopus\Applications" --port "10933" --noListen "False"
+                    cmd.exe /c Tentacle.exe configure --instance "Tentacle" --trust "E3DA67783E21D38A83874F4D24E826C47E1161B8"
+                    cmd.exe /c "netsh" advfirewall firewall add rule "name=Octopus Deploy Tentacle" dir=in action=allow protocol=TCP localport=10933
+                    cmd.exe /c Tentacle.exe service --instance "Tentacle" --install --stop --start 
+                 
+        
+              
+Outputs:
+  secGroup:
+    Value: !Ref Mysecgroup
+    Export:
+      Name: !Sub "${AWS::StackName}-SecurityGroup"
